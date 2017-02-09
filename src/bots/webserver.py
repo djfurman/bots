@@ -4,7 +4,16 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-import cherrypy.wsgiserver
+try:
+    from cheroot.server import get_ssl_adapter_class
+    from cheroot.wsgi import WSGIServer as wsgiserver
+    from cheroot.wsgi import PathInfoDispatcher as infodispatcher
+except ImportError:
+    from cherrypy.wsgiserver import get_ssl_adapter_class
+    from cherrypy.wsgiserver import CherryPyWSGIServer as wsgiserver
+    from cherrypy.wsgiserver import WSGIPathInfoDispatcher as infodispatcher
+
+import cherrypy
 import click
 import sys
 
@@ -49,10 +58,10 @@ def start(configdir):
     # was: servedjango = AdminMediaHandler(WSGIHandler())  - django does not need the AdminMediaHandler.
     servedjango = WSGIHandler()
     #cherrypy uses a dispatcher in order to handle the serving of static files and django.
-    dispatcher = cherrypy.wsgiserver.WSGIPathInfoDispatcher(
+    dispatcher = infodispatcher(
         {'/': servedjango, str('/media'): servestaticfiles})  # UNICODEPROBLEM: needs to be binary
 
-    botswebserver = cherrypy.wsgiserver.CherryPyWSGIServer(
+    botswebserver = wsgiserver(
         bind_addr=('0.0.0.0', botsglobal.ini.getint('webserver', 'port', 8080)),
         wsgi_app=dispatcher,
         server_name=botsglobal.ini.get('webserver', 'name', 'bots-webserver'),
@@ -71,7 +80,7 @@ def start(configdir):
     ssl_private_key = botsglobal.ini.get('webserver', 'ssl_private_key', None)
     if ssl_certificate and ssl_private_key:
         if cherrypy.__version__ >= '3.2.0':
-            adapter_class = cherrypy.wsgiserver.get_ssl_adapter_class('builtin')
+            adapter_class = get_ssl_adapter_class('builtin')
             botswebserver.ssl_adapter = adapter_class(ssl_certificate, ssl_private_key)
         else:
             #but: pyOpenssl should be there!

@@ -64,4 +64,4 @@ Bots is licenced under GNU GENERAL PUBLIC LICENSE Version 3; for full
 text: http://www.gnu.org/copyleft/gpl.html
 
 .. _Henk-Jan Ebbers: http://bots.sourceforge.net/en/index.shtml
-.. _documentation: https://bots-edi.github.io/
+.. _documentation: https://bots-edi.github.io/bots
