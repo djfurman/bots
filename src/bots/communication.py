@@ -1495,7 +1495,10 @@ class sftp(_comsession):
             privatekeyfile, pkeytype, pkeypassword = botslib.runscript(
                 self.userscript, self.scriptname, 'privatekey', channeldict=self.channeldict)
             if pkeytype == 'RSA':
-                pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
+                if pkeypassword is not None:
+                    pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
+                else:
+                    pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile)
             else:
                 pkey = paramiko.DSSKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
         else:
