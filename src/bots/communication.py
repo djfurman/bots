@@ -23,6 +23,7 @@ import email.encoders
 import smtplib
 import ftplib
 import socket
+import logging
 import ssl
 if os.name == 'nt':
     import msvcrt
@@ -1453,6 +1454,10 @@ class ftpis(ftp):
 
 
 class sftp(_comsession):
+    """
+    sFTP or SSH File Transfer Protocol is a secured protocol that utilises the transportation layer of SSH2
+    Implemented with paramiko 2.1+, this protocol leverages username/password or public key authentication/authorization
+
     ''' SFTP: SSH File Transfer Protocol (SFTP is not FTP run over SSH, SFTP is not Simple File Transfer Protocol)
         standard port to connect to is port 22.
         requires paramiko and pycrypto to be installed
@@ -1463,6 +1468,22 @@ class sftp(_comsession):
         henk-jan ebbers 20120522: hostkey and privatekey can now be handled in user exit.
     '''
 
+    Reimplemented based on ftp implementation above and
+        paramiko 2.1 documentation at http://docs.paramiko.org/en/2.1/api/sftp.html
+
+    Dan Furman 20170218: With security release 2.1 of paramiko,
+        pycrypto is removed and replaced with dependency on cryptography, avoiding a potential critical
+        man in the middle (MITM) vulnerability.
+
+        Given today's NIST recommendations, implementation has been expanded to support ecdsa keys as well
+
+        When supported by the paramiko library, ED25519 support should also be added.
+
+        Add log aggregation by day for all SFTP logging via paramiko
+    """
+    transport = None
+    session = None
+
     def connect(self):
         # check dependencies
         try:
@@ -1470,15 +1491,33 @@ class sftp(_comsession):
         except:
             raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "paramiko".'))
         try:
-            from Crypto import Cipher
+            import cryptography
         except:
-            raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "pycrypto".'))
+            raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "cryptography".'))
+
         # setup logging if required
+        # Dan Furman - 2017-02-22
+        #   Direct paramiko method uses an unacceptable default of overwriting the log file as needed
+        #   Intercept the log file and append to the file rather than overwriting
+        #       See https://github.com/paramiko/paramiko/issues/683
+        #   paramiko.util.log_to_file(log_file, 30 - (ftpdebug * 10))
         ftpdebug = botsglobal.ini.getint('settings', 'ftpdebug', 0)
         if ftpdebug > 0:
-            log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.log')
+            # Separate log files by date
+            day_extension = datetime.datetime.now().strftime("%Y-%m-%d")
+            log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.log.' + day_extension)
+
+            # Get the paramiko logger
+            logger = logging.getLogger("paramiko")
+
+            # Set the log level as needed
             # Convert ftpdebug to paramiko logging level (1=20=info, 2=10=debug)
-            paramiko.util.log_to_file(log_file, 30 - (ftpdebug * 10))
+            logger.setLevel(30 - (ftpdebug * 10))
+
+            # Open the log file in append mode
+            log_file_object = open(log_file, 'a')
+            log_handler = logging.StreamHandler(log_file_object)
+            logger.addHandler(log_handler)
 
         # Get hostname and port to use
         hostname = self.channeldict['host']
@@ -1487,27 +1526,53 @@ class sftp(_comsession):
         except:
             port = 22  # default port for sftp
 
+        password = None
+        if self.channeldict['secret']:
+            password = self.channeldict['secret']
+
+        pkey = None
+        private_key_path = self.channeldict['privatekey']
+        if private_key_path is not None:
+            # Try to open the key
+            pkey = paramiko.PKey.from_private_key_file(private_key_path, password)
+            # Get the type of the key from the file
+            key_type = pkey.get_name()
+            # Handle RSA keys
+            if key_type == 'ssh-rsa':
+                pkey = paramiko.RSAKey.from_private_key_file(private_key_path, password)
+                password = None
+            # Handle ECDSA keys
+            elif key_type == 'ecdsa-sha2-nistp256':
+                pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
+                password = None
+            # Handle DSA/DSS Keys
+            elif key_type == 'ssh-dss':
+                pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
+                password = None
+            # In any other case
+            else:
+                # todo throw some kind of exception that they key type can
+                #   1. be unrecognized
+                #   2. be unsupported (e.g., ed25519)
+                pass
+
+        # Look for user script overrides
         if self.userscript and hasattr(self.userscript, 'hostkey'):
             hostkey = botslib.runscript(self.userscript, self.scriptname, 'hostkey', channeldict=self.channeldict)
         else:
             hostkey = None
-        if self.userscript and hasattr(self.userscript, 'privatekey'):
-            privatekeyfile, pkeytype, pkeypassword = botslib.runscript(
-                self.userscript, self.scriptname, 'privatekey', channeldict=self.channeldict)
-            if pkeytype == 'RSA':
-                pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
-            else:
-                pkey = paramiko.DSSKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
-        else:
-            pkey = None
 
-        if self.channeldict['secret']:  # if password is empty string: use None. Else error can occur.
-            secret = self.channeldict['secret']
-        else:
-            secret = None
-        # now, connect and use paramiko Transport to negotiate SSH2 across the connection
+        # Establish transport layer
         self.transport = paramiko.Transport((hostname, port))
-        self.transport.connect(username=self.channeldict['username'], password=secret, hostkey=hostkey, pkey=pkey)
+        # Connect the transport Layer
+        self.transport.connect(
+            username=self.channeldict['username'],
+            password=password,
+            hostkey=hostkey,
+            pkey=pkey
+        )
+
+        # Establish the SFTP client from the transport layer
         self.session = paramiko.SFTPClient.from_transport(self.transport)
         channel = self.session.get_channel()
         channel.settimeout(botsglobal.ini.getint('settings', 'ftptimeout', 10))
@@ -1530,11 +1595,11 @@ class sftp(_comsession):
 
     @botslib.log_session
     def incommunicate(self):
-        ''' do ftp: receive files. To be used via receive-dispatcher.
+        ''' do sftp: receive files. To be used via receive-dispatcher.
             each to be imported file is transaction.
             each imported file is transaction.
         '''
-        startdatetime = datetime.datetime.now()
+        start_date_time = datetime.datetime.now()
         files = self.session.listdir('.')
         lijst = fnmatch.filter(files, self.channeldict['filename'])
         remove_ta = False
@@ -1563,6 +1628,7 @@ class sftp(_comsession):
                         ta_from.delete()
                         ta_to.delete()
                     except:
+                        # Why would this silently fail? what would this even mean?
                         pass
             else:
                 ta_to.update(filename=tofilename, statust=OK, filesize=filesize)
@@ -1571,12 +1637,12 @@ class sftp(_comsession):
                     self.session.remove(fromfilename)
             finally:
                 remove_ta = False
-                if (datetime.datetime.now() - startdatetime).seconds >= self.maxsecondsperchannel:
+                if (datetime.datetime.now() - start_date_time).seconds >= self.maxsecondsperchannel:
                     break
 
     @botslib.log_session
     def outcommunicate(self):
-        ''' do ftp: send files. To be used via receive-dispatcher.
+        ''' do sftp: send files. To be used via receive-dispatcher.
             each to be send file is transaction.
             each send file is transaction.
         '''
@@ -1614,11 +1680,20 @@ class sftp(_comsession):
                     self.session.rename(tofilename_old, tofilename)
             except:
                 txt = botslib.txtexc()
-                ta_to.update(statust=ERROR, errortext=txt, filename='sftp:/' + posixpath.join(self.dirpath,
-                                                                                              tofilename), numberofresends=row[str('numberofresends')] + 1)
+                ta_to.update(
+                    statust=ERROR,
+                    errortext=txt,
+                    # How would this actually get access to the tofilename?
+                    # This should only be triggered if the try... block above failed
+                    filename='sftp:/' + posixpath.join(self.dirpath, tofilename),
+                    numberofresends=row[str('numberofresends')] + 1
+                )
             else:
-                ta_to.update(statust=DONE, filename='sftp:/' + posixpath.join(self.dirpath,
-                                                                              tofilename), numberofresends=row[str('numberofresends')] + 1)
+                ta_to.update(
+                    statust=DONE,
+                    filename='sftp:/' + posixpath.join(self.dirpath, tofilename),
+                    numberofresends=row[str('numberofresends')] + 1
+                )
             finally:
                 ta_from.update(statust=DONE)
 
