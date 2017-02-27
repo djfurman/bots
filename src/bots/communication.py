@@ -1503,21 +1503,7 @@ class sftp(_comsession):
         #   paramiko.util.log_to_file(log_file, 30 - (ftpdebug * 10))
         ftpdebug = botsglobal.ini.getint('settings', 'ftpdebug', 0)
         if ftpdebug > 0:
-            # Separate log files by date
-            day_extension = datetime.datetime.now().strftime("%Y-%m-%d")
-            log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.log.' + day_extension)
-
-            # Get the paramiko logger
-            logger = logging.getLogger("paramiko")
-
-            # Set the log level as needed
-            # Convert ftpdebug to paramiko logging level (1=20=info, 2=10=debug)
-            logger.setLevel(30 - (ftpdebug * 10))
-
-            # Open the log file in append mode
-            log_file_object = open(log_file, 'a')
-            log_handler = logging.StreamHandler(log_file_object)
-            logger.addHandler(log_handler)
+            self.library_logger(ftpdebug)
 
         # Get hostname and port to use
         hostname = self.channeldict['host']
@@ -1530,31 +1516,47 @@ class sftp(_comsession):
         if self.channeldict['secret']:
             password = self.channeldict['secret']
 
+        private_key_path = None
+        # this channels will not fire without this section;
+        #   however the pkeytype and pkeypassword don't return what was expected
+        if self.userscript and hasattr(self.userscript, 'privatekey'):
+            private_key_path, pkeytype, pkeypassword = botslib.runscript(
+                self.userscript,
+                self.scriptname,
+                'privatekey',
+                channeldict=self.channeldict
+            )
+
         pkey = None
-        private_key_path = self.channeldict['privatekey']
+        if (self.channeldict['keyfile'] is not None) and self.channeldict['keyfile'] != '':
+            private_key_path = self.channeldict['keyfile']
+
+        use_private_key = False
         if private_key_path is not None:
-            # Try to open the key
-            pkey = paramiko.PKey.from_private_key_file(private_key_path, password)
-            # Get the type of the key from the file
-            key_type = pkey.get_name()
             # Handle RSA keys
-            if key_type == 'ssh-rsa':
+            try:
                 pkey = paramiko.RSAKey.from_private_key_file(private_key_path, password)
                 password = None
+                use_private_key = True
+            except:
+                print("Unexpected error:", sys.exc_info()[0])
+                raise
             # Handle ECDSA keys
-            elif key_type == 'ecdsa-sha2-nistp256':
-                pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
-                password = None
-            # Handle DSA/DSS Keys
-            elif key_type == 'ssh-dss':
-                pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
-                password = None
+            # elif key_type == 'ecdsa-sha2-nistp256':
+            #     pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
+            #     password = None
+            #     use_private_key = True
+            # # Handle DSA/DSS Keys
+            # elif key_type == 'ssh-dss':
+            #     pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
+            #     password = None
+            #     use_private_key = True
             # In any other case
-            else:
+            # else:
                 # todo throw some kind of exception that they key type can
                 #   1. be unrecognized
                 #   2. be unsupported (e.g., ed25519)
-                pass
+                # pass
 
         # Look for user script overrides
         if self.userscript and hasattr(self.userscript, 'hostkey'):
@@ -1565,12 +1567,19 @@ class sftp(_comsession):
         # Establish transport layer
         self.transport = paramiko.Transport((hostname, port))
         # Connect the transport Layer
-        self.transport.connect(
-            username=self.channeldict['username'],
-            password=password,
-            hostkey=hostkey,
-            pkey=pkey
-        )
+        if use_private_key:
+            self.transport.connect(
+                username=self.channeldict['username'],
+                hostkey=hostkey,
+                pkey=pkey,
+                password=password
+            )
+        else:
+            self.transport.connect(
+                username=self.channeldict['username'],
+                hostkey=hostkey,
+                password=password
+            )
 
         # Establish the SFTP client from the transport layer
         self.session = paramiko.SFTPClient.from_transport(self.transport)
@@ -1592,6 +1601,28 @@ class sftp(_comsession):
     def disconnect(self):
         self.session.close()
         self.transport.close()
+
+    def library_logger(self, sftp_debug_level):
+        # Separate log files by date
+        day_extension = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.' + day_extension + '.log')
+
+        # Get the paramiko logger
+        logger = logging.getLogger("paramiko")
+
+        # Set the log level as needed
+        # Convert ftpdebug to paramiko logging level (1=20=info, 2=10=debug)
+        logger.setLevel(30 - (sftp_debug_level * 10))
+
+        # Format the logging
+        formatter = logging.Formatter('%(levelname)s\t[%(asctime)s] %(name)s:\t%(message)s')
+
+        # Open the log file in append mode
+        log_file_object = open(log_file, 'a')
+        log_handler = logging.StreamHandler(log_file_object)
+        log_handler.setFormatter(formatter)
+        logger.addHandler(log_handler)
+        return logger
 
     @botslib.log_session
     def incommunicate(self):
@@ -1653,30 +1684,41 @@ class sftp(_comsession):
             mode = 'w'
         else:
             mode = 'a'
-        for row in botslib.query('''SELECT idta,filename,numberofresends
-                                    FROM ta
-                                    WHERE idta>%(rootidta)s
-                                      AND status=%(status)s
-                                      AND statust=%(statust)s
-                                      AND tochannel=%(tochannel)s
-                                        ''',
-                                 {'tochannel': self.channeldict['idchannel'], 'rootidta': self.rootidta,
-                                     'status': FILEOUT, 'statust': OK}):
+        for row in botslib.query(
+                '''
+                SELECT idta,filename,numberofresends
+                FROM ta
+                WHERE idta>%(rootidta)s
+                  AND status=%(status)s
+                  AND statust=%(statust)s
+                  AND tochannel=%(tochannel)s
+                ''',
+                {
+                    'tochannel': self.channeldict['idchannel'],
+                    'rootidta': self.rootidta,
+                    'status': FILEOUT,
+                    'statust': OK
+                }):
             try:
                 ta_from = botslib.OldTransaction(row[str('idta')])
                 ta_to = ta_from.copyta(status=EXTERNOUT)
                 tofilename = self.filename_formatter(filename_mask, ta_from)
+                print("tofilename ", tofilename)
+                print("ta_from", ta_from)
                 fromfile = botslib.opendata_bin(row[str('filename')], 'rb')
                 # SSH treats all files as binary. paramiko doc says: b-flag is ignored
                 tofile = self.session.open(tofilename, mode)
                 tofile.write(fromfile.read())
                 tofile.close()
                 fromfile.close()
+
                 #Rename filename after writing file.
                 #Function: safe file writing: do not want another process to read the file while it is being written.
                 if self.channeldict['mdnchannel']:
                     tofilename_old = tofilename
                     tofilename = botslib.rreplace(tofilename_old, self.channeldict['mdnchannel'])
+                    print(tofilename_old)
+                    print(tofilename)
                     self.session.rename(tofilename_old, tofilename)
             except:
                 txt = botslib.txtexc()
@@ -1684,6 +1726,7 @@ class sftp(_comsession):
                     statust=ERROR,
                     errortext=txt,
                     # How would this actually get access to the tofilename?
+                    # Dan Furman - 20170226; turns out it can't an in fact fails
                     # This should only be triggered if the try... block above failed
                     filename='sftp:/' + posixpath.join(self.dirpath, tofilename),
                     numberofresends=row[str('numberofresends')] + 1
