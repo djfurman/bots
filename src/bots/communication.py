@@ -1538,25 +1538,21 @@ class sftp(_comsession):
                 pkey = paramiko.RSAKey.from_private_key_file(private_key_path, password)
                 password = None
                 use_private_key = True
-            except:
-                print("Unexpected error:", sys.exc_info()[0])
-                raise
-            # Handle ECDSA keys
-            # elif key_type == 'ecdsa-sha2-nistp256':
-            #     pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
-            #     password = None
-            #     use_private_key = True
-            # # Handle DSA/DSS Keys
-            # elif key_type == 'ssh-dss':
-            #     pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
-            #     password = None
-            #     use_private_key = True
-            # In any other case
-            # else:
-                # todo throw some kind of exception that they key type can
-                #   1. be unrecognized
-                #   2. be unsupported (e.g., ed25519)
-                # pass
+            except paramiko.SSHException:
+                # Try ECDSA key
+                try:
+                    pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
+                    password = None
+                    use_private_key = True
+                except paramiko.SSHException:
+                    # if that doesn't work, go for DSSKey
+                    try:
+                        pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
+                        password = None
+                        use_private_key = True
+                    except paramiko.SSHException:
+                        print("Unexpected error:", sys.exc_info()[0])
+                        raise
 
         # Look for user script overrides
         if self.userscript and hasattr(self.userscript, 'hostkey'):
