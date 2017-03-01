@@ -1703,9 +1703,11 @@ class sftp(_comsession):
                 print("ta_from", ta_from)
                 fromfile = botslib.opendata_bin(row[str('filename')], 'rb')
                 # SSH treats all files as binary. paramiko doc says: b-flag is ignored
-                tofile = self.session.open(tofilename, mode)
-                tofile.write(fromfile.read())
-                tofile.close()
+                tofile = self.session.putfo(fl=fromfile, remotepath=tofilename, confirm=True)
+                print(tofile)
+                # tofile = self.session.open(tofilename, mode)
+                # tofile.write(fromfile.read())
+                # tofile.close()
                 fromfile.close()
 
                 #Rename filename after writing file.
@@ -1713,8 +1715,6 @@ class sftp(_comsession):
                 if self.channeldict['mdnchannel']:
                     tofilename_old = tofilename
                     tofilename = botslib.rreplace(tofilename_old, self.channeldict['mdnchannel'])
-                    print(tofilename_old)
-                    print(tofilename)
                     self.session.rename(tofilename_old, tofilename)
             except:
                 txt = botslib.txtexc()
