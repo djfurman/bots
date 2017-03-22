@@ -23,6 +23,7 @@ import email.encoders
 import smtplib
 import ftplib
 import socket
+import logging
 import ssl
 if os.name == 'nt':
     import msvcrt
@@ -1453,6 +1454,10 @@ class ftpis(ftp):
 
 
 class sftp(_comsession):
+    """
+     sFTP or SSH File Transfer Protocol is a secured protocol that utilises the transportation layer of SSH2
+    Implemented with paramiko 2.1+, this protocol leverages username/password or public key authentication/authorization
+
     ''' SFTP: SSH File Transfer Protocol (SFTP is not FTP run over SSH, SFTP is not Simple File Transfer Protocol)
         standard port to connect to is port 22.
         requires paramiko and pycrypto to be installed
@@ -1462,6 +1467,20 @@ class sftp(_comsession):
         henk-jan ebbers 20111019: disabled the host_key part for now (but is very interesting). Is not tested; keys should be integrated in bots also for other protocols.
         henk-jan ebbers 20120522: hostkey and privatekey can now be handled in user exit.
     '''
+    Reimplemented based on ftp implementation above and
+        paramiko 2.1 documentation at http://docs.paramiko.org/en/2.1/api/sftp.html
+
+    Dan Furman 20170218: With security release 2.1 of paramiko,
+        pycrypto is removed and replaced with dependency on cryptography, avoiding a potential critical
+        man in the middle (MITM) vulnerability.
+
+        Given today's NIST recommendations, implementation has been expanded to support ecdsa keys as well
+
+        When supported by the paramiko library, ED25519 support should also be added.
+
+        Add log aggregation by day for all SFTP logging via paramiko
+
+    """
 
     def connect(self):
         # check dependencies
@@ -1473,12 +1492,16 @@ class sftp(_comsession):
             import cryptography
         except:
             raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "cryptography".'))
+
         # setup logging if required
+        # Dan Furman - 2017-02-22
+        #   Direct paramiko method uses an unacceptable default of overwriting the log file as needed
+        #   Intercept the log file and append to the file rather than overwriting
+        #       See https://github.com/paramiko/paramiko/issues/683
+        #   paramiko.util.log_to_file(log_file, 30 - (ftpdebug * 10))
         ftpdebug = botsglobal.ini.getint('settings', 'ftpdebug', 0)
         if ftpdebug > 0:
-            log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.log')
-            # Convert ftpdebug to paramiko logging level (1=20=info, 2=10=debug)
-            paramiko.util.log_to_file(log_file, 30 - (ftpdebug * 10))
+            self.library_logger(ftpdebug)
 
         # Get hostname and port to use
         hostname = self.channeldict['host']
@@ -1530,6 +1553,29 @@ class sftp(_comsession):
     def disconnect(self):
         self.session.close()
         self.transport.close()
+
+    def library_logger(self, sftp_debug_level):
+        # Separate log files by date
+        day_extension = datetime.datetime.now().strftime("%Y-%m-%d")
+        log_file = botslib.join(botsglobal.ini.get('directories', 'logging'), 'sftp.' + day_extension + '.log')
+
+        # Get the paramiko logger
+        logger = logging.getLogger("paramiko")
+
+        # Set the log level as needed
+        # Convert ftpdebug to paramiko logging level (1=20=info, 2=10=debug)
+        logger.setLevel(30 - (sftp_debug_level * 10))
+
+        # Format the logging
+        formatter = logging.Formatter('%(levelname)s\t[%(asctime)s] %(name)s:\t%(message)s')
+
+        # Open the log file in append mode
+        log_file_object = open(log_file, 'a')
+        log_handler = logging.StreamHandler(log_file_object)
+        log_handler.setFormatter(formatter)
+        logger.addHandler(log_handler)
+        return logger
+
 
     @botslib.log_session
     def incommunicate(self):
