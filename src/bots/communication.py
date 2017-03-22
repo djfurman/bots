@@ -1470,9 +1470,9 @@ class sftp(_comsession):
         except:
             raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "paramiko".'))
         try:
-            from Crypto import Cipher
+            import cryptography
         except:
-            raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "pycrypto".'))
+            raise ImportError(_('Dependency failure: communicationtype "sftp" requires python library "cryptography".'))
         # setup logging if required
         ftpdebug = botsglobal.ini.getint('settings', 'ftpdebug', 0)
         if ftpdebug > 0:
