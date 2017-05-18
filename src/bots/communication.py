@@ -1479,7 +1479,6 @@ class sftp(_comsession):
         When supported by the paramiko library, ED25519 support should also be added.
 
         Add log aggregation by day for all SFTP logging via paramiko
-
     """
 
     def connect(self):
@@ -1510,30 +1509,72 @@ class sftp(_comsession):
         except:
             port = 22  # default port for sftp
 
+        password = None
+        if self.channeldict['secret']:
+            password = self.channeldict['secret']
+
+        private_key_path = None
+        # this channels will not fire without this section;
+        #   however the pkeytype and pkeypassword don't return what was expected
+        if self.userscript and hasattr(self.userscript, 'privatekey'):
+            private_key_path, pkeytype, pkeypassword = botslib.runscript(
+                self.userscript,
+                self.scriptname,
+                'privatekey',
+                channeldict=self.channeldict
+            )
+
+        pkey = None
+        if (self.channeldict['keyfile'] is not None) and self.channeldict['keyfile'] != '':
+            private_key_path = self.channeldict['keyfile']
+
+        use_private_key = False
+        if private_key_path is not None:
+            # Handle RSA keys
+            try:
+                pkey = paramiko.RSAKey.from_private_key_file(private_key_path, password)
+                password = None
+                use_private_key = True
+            except paramiko.SSHException:
+                # Try ECDSA key
+                try:
+                    pkey = paramiko.ECDSAKey.from_private_key_file(private_key_path, password)
+                    password = None
+                    use_private_key = True
+                except paramiko.SSHException:
+                    # if that doesn't work, go for DSSKey
+                    try:
+                        pkey = paramiko.DSSKey.from_private_key_file(private_key_path, password)
+                        password = None
+                        use_private_key = True
+                    except paramiko.SSHException:
+                        print("Unexpected error:", sys.exc_info()[0])
+                        raise
+
+        # Look for user script overrides
         if self.userscript and hasattr(self.userscript, 'hostkey'):
             hostkey = botslib.runscript(self.userscript, self.scriptname, 'hostkey', channeldict=self.channeldict)
         else:
             hostkey = None
-        if self.userscript and hasattr(self.userscript, 'privatekey'):
-            privatekeyfile, pkeytype, pkeypassword = botslib.runscript(
-                self.userscript, self.scriptname, 'privatekey', channeldict=self.channeldict)
-            if pkeytype == 'RSA':
-                if pkeypassword is not None:
-                    pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
-                else:
-                    pkey = paramiko.RSAKey.from_private_key_file(filename=privatekeyfile)
-            else:
-                pkey = paramiko.DSSKey.from_private_key_file(filename=privatekeyfile, password=pkeypassword)
-        else:
-            pkey = None
 
-        if self.channeldict['secret']:  # if password is empty string: use None. Else error can occur.
-            secret = self.channeldict['secret']
-        else:
-            secret = None
-        # now, connect and use paramiko Transport to negotiate SSH2 across the connection
+        # Establish transport layer
         self.transport = paramiko.Transport((hostname, port))
-        self.transport.connect(username=self.channeldict['username'], password=secret, hostkey=hostkey, pkey=pkey)
+        # Connect the transport Layer
+        if use_private_key:
+            self.transport.connect(
+                username=self.channeldict['username'],
+                hostkey=hostkey,
+                pkey=pkey,
+                password=password
+            )
+        else:
+            self.transport.connect(
+                username=self.channeldict['username'],
+                hostkey=hostkey,
+                password=password
+            )
+
+        # Establish the SFTP client from the transport layer
         self.session = paramiko.SFTPClient.from_transport(self.transport)
         channel = self.session.get_channel()
         channel.settimeout(botsglobal.ini.getint('settings', 'ftptimeout', 10))
@@ -1575,7 +1616,6 @@ class sftp(_comsession):
         log_handler.setFormatter(formatter)
         logger.addHandler(log_handler)
         return logger
-
 
     @botslib.log_session
     def incommunicate(self):
