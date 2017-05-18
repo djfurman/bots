@@ -32,29 +32,29 @@ EMAIL_HOST_PASSWORD = ''    #Default: ''. PASSWORD to use for the SMTP server de
         #~ }
     #~ }
 #~ #MySQL:
-#~ DATABASES = {
-    #~ 'default': {
-        #~ 'ENGINE': 'django.db.backends.mysql',
-        #~ 'NAME': 'botsdb',
-        #~ 'USER': 'bots',
-        #~ 'PASSWORD': 'botsbots',
-        #~ 'HOST': '192.168.0.9',
-        #~ 'PORT': '3306',
-        #~ 'OPTIONS': {'use_unicode':True,'charset':'utf8','init_command': 'SET storage_engine=INNODB'},
-        #~ }
-    #~ }
-#~ #PostgreSQL:
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': 'botsdb',
-        'USER': 'bots',
-        'PASSWORD': 'botsbots',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'bots',
+        'USER': 'root',
+        'PASSWORD': 'supersecret',
         'HOST': '127.0.0.1',
-        'PORT': '5432',
-        'OPTIONS': {},
+        'PORT': '3306',
+        'OPTIONS': {'use_unicode': True, 'charset': 'utf8', 'init_command': 'SET storage_engine=INNODB'},
         }
     }
+#~ #PostgreSQL:
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql_psycopg2',
+#         'NAME': 'botsdb',
+#         'USER': 'bots',
+#         'PASSWORD': 'botsbots',
+#         'HOST': '127.0.0.1',
+#         'PORT': '5432',
+#         'OPTIONS': {},
+#         }
+#     }
 
 #*********setting date/time zone and formats *************************
 # Local time zone for this installation. Choices can be found here:
@@ -62,7 +62,7 @@ DATABASES = {
 # although not all choices may be available on all operating systems.
 # If running in a Windows environment this must be set to the same as your
 # system time zone.
-TIME_ZONE = 'Europe/Amsterdam'
+TIME_ZONE = 'America/New_York'
 
 #~ *********language code/internationalization*************************
 # Language code for this installation. All choices can be found here:

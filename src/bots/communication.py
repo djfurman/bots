@@ -1673,7 +1673,7 @@ class sftp(_comsession):
             each to be send file is transaction.
             each send file is transaction.
         '''
-        #get right filename_mask & determine if fixed name (append) or files with unique names
+        # get right filename_mask & determine if fixed name (append) or files with unique names
         filename_mask = self.channeldict['filename'] if self.channeldict['filename'] else '*'
         if '{overwrite}' in filename_mask:
             filename_mask = filename_mask.replace('{overwrite}', '')
@@ -1699,24 +1699,28 @@ class sftp(_comsession):
                 ta_from = botslib.OldTransaction(row[str('idta')])
                 ta_to = ta_from.copyta(status=EXTERNOUT)
                 tofilename = self.filename_formatter(filename_mask, ta_from)
-                print("tofilename ", tofilename)
-                print("ta_from", ta_from)
                 fromfile = botslib.opendata_bin(row[str('filename')], 'rb')
                 # SSH treats all files as binary. paramiko doc says: b-flag is ignored
-                tofile = self.session.putfo(fl=fromfile, remotepath=tofilename, confirm=True)
-                print(tofile)
+                self.session.putfo(
+                    fl=fromfile,
+                    remotepath=tofilename,
+                    confirm=True
+                )
                 # tofile = self.session.open(tofilename, mode)
                 # tofile.write(fromfile.read())
                 # tofile.close()
                 fromfile.close()
 
-                #Rename filename after writing file.
-                #Function: safe file writing: do not want another process to read the file while it is being written.
-                if self.channeldict['mdnchannel']:
-                    tofilename_old = tofilename
-                    tofilename = botslib.rreplace(tofilename_old, self.channeldict['mdnchannel'])
-                    self.session.rename(tofilename_old, tofilename)
+                # Rename filename after writing file.
+                # Function: safe file writing: do not want another process to read the file while it is being written.
+                # if self.channeldict['mdnchannel']:
+                #     tofilename_old = tofilename
+                #     tofilename = botslib.rreplace(tofilename_old, self.channeldict['mdnchannel'])
+                #     self.session.rename(tofilename_old, tofilename)
             except:
+                # added to try and make the name accessible
+                # no difference, still errors out
+                # tofilename = self.filename_formatter(filename_mask, ta_from)
                 txt = botslib.txtexc()
                 ta_to.update(
                     statust=ERROR,

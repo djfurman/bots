@@ -19,29 +19,29 @@ EMAIL_HOST_PASSWORD = ''    #Default: ''. PASSWORD to use for the SMTP server de
 
 #*********database settings*************************
 #SQLite database (default bots database)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': os.path.join(PROJECT_PATH, 'botssys/sqlitedb/botsdb'),
+#         'USER': '',         #not needed for SQLite
+#         'PASSWORD': '',     #not needed for SQLite
+#         'HOST': '',         #not needed for SQLite
+#         'PORT': '',         #not needed for SQLite
+#         'OPTIONS': {},      #not needed for SQLite
+#         }
+#     }
+#MySQL:
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(PROJECT_PATH, 'botssys/sqlitedb/botsdb'),
-        'USER': '',         #not needed for SQLite
-        'PASSWORD': '',     #not needed for SQLite
-        'HOST': '',         #not needed for SQLite
-        'PORT': '',         #not needed for SQLite
-        'OPTIONS': {},      #not needed for SQLite
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'bots',
+        'USER': 'root',
+        'PASSWORD': 'supersecret',
+        'HOST': '127.0.0.1',
+        'PORT': '3306',
+        'OPTIONS': {'use_unicode': True, 'charset': 'utf8', 'init_command': 'SET storage_engine=INNODB'},
         }
     }
-#MySQL:
-#~ DATABASES = {
-    #~ 'default': {
-        #~ 'ENGINE': 'django.db.backends.mysql',
-        #~ 'NAME': 'botsdb',
-        #~ 'USER': 'bots',
-        #~ 'PASSWORD': 'botsbots',
-        #~ 'HOST': '127.0.0.1',
-        #~ 'PORT': '3306',
-        #~ 'OPTIONS': {'use_unicode':True,'charset':'utf8','init_command': 'SET storage_engine=INNODB'},
-        #~ }
-    #~ }
 #~ #PostgreSQL:
 #~ DATABASES = {
     #~ 'default': {
@@ -61,7 +61,7 @@ DATABASES = {
 # although not all choices may be available on all operating systems.
 # If running in a Windows environment this must be set to the same as your
 # system time zone.
-TIME_ZONE = 'Europe/Amsterdam'
+TIME_ZONE = 'America/New_York'
 
 #~ *********language code/internationalization*************************
 # Language code for this installation. All choices can be found here:
